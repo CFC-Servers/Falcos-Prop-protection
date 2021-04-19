@@ -2,6 +2,17 @@ CPPI = CPPI or {}
 CPPI.CPPI_DEFER = 102112 --\102\112 = fp
 CPPI.CPPI_NOTIMPLEMENTED = 7080 --\70\80 = FP
 
+local assert = assert
+local tostring = tostring
+
+local IsValid = IsValid
+local IsEntity = IsEntity
+
+local hookRun = hook.Run
+
+local tableInsert = table.insert
+local tableHasValue = table.HasValue
+
 function CPPI:GetName()
     return "Falco's prop protection"
 end
@@ -24,8 +35,9 @@ function PLAYER:CPPIGetFriends()
     local FriendsTable = {}
 
     for k, v in pairs(self.Buddies) do
-        if not table.HasValue(v, true) then continue end -- not buddies in anything
-        table.insert(FriendsTable, k)
+        if tableHasValue(v, true) then
+            tableInsert(FriendsTable, k)
+        end
     end
 
     return FriendsTable
@@ -33,8 +45,8 @@ end
 
 local ENTITY = FindMetaTable("Entity")
 function ENTITY:CPPIGetOwner()
-    local Owner = FPP.entGetOwner(self)
-    if not IsValid(Owner) or not Owner:IsPlayer() then return SERVER and Owner or nil, self.FPPOwnerID end
+    local Owner = FPP.entGetOwner( self )
+    if not IsValid( Owner ) or not Owner:IsPlayer() then return SERVER and Owner or nil, self.FPPOwnerID end
     return Owner, Owner:UniqueID()
 end
 
@@ -46,7 +58,7 @@ if SERVER then
 
         local valid = IsValid(ply) and ply:IsPlayer()
         local steamId = valid and ply:SteamID() or nil
-        local canSetOwner = hook.Run("CPPIAssignOwnership", ply, self, valid and ply:UniqueID() or ply)
+        local canSetOwner = hookRun("CPPIAssignOwnership", ply, self, valid and ply:UniqueID() or ply)
 
         if canSetOwner == false then return false end
         ply = canSetOwner ~= nil and canSetOwner ~= true and canSetOwner or ply

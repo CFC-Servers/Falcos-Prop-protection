@@ -1,42 +1,70 @@
 FPP = FPP or {}
 FPP.DisconnectedPlayers = FPP.DisconnectedPlayers or {}
 
-
 local PLAYER = FindMetaTable("Player")
 local ENTITY = FindMetaTable("Entity")
 
-/*---------------------------------------------------------------------------
-Checks is a model is blocked
----------------------------------------------------------------------------*/
+local rawget = rawget
+local rawset = rawset
+local ipairs = ipairs
+local IsValid = IsValid
+
+local stringLower = string.lower
+local stringReplace = string.Replace
+local stringGsub = string.gsub
+local stringFind = string.find
+
+local tableInsert = table.insert
+
+local tobool = tobool
+local isbool = isbool
+local isfunction = isfunction
+
+---------------------------------------------------------------------------
+-- Checks is a model is blocked
+---------------------------------------------------------------------------
 local function isBlocked(model)
-    if model == "" or not FPP.Settings or not FPP.Settings.FPP_BLOCKMODELSETTINGS1 or
-        not tobool(FPP.Settings.FPP_BLOCKMODELSETTINGS1.toggle)
-        or not FPP.BlockedModels or not model then return end
+    if not model then return end
+    if model == "" then return end
 
-    model = string.lower(model or "")
-    model = string.Replace(model, "\\", "/")
-    model = string.gsub(model, "[\\/]+", "/")
+    local settings = rawget( FPP, "Settings" )
+    if not settings then return end
 
-    if string.find(model, "../", 1, true) then
+    local blockedModelSettings = rawget( settings, "FPP_BLOCKMODELSETTINGS1" )
+    if not blockedModelSettings then return end
+    if not tobool( rawget( blockedModelSettings, "toggle" ) ) then return end
+
+    local blockedModels = rawget( FPP, "BlockedModels" )
+    if not blockedModels then return end
+
+    model = stringLower( model or "" )
+    model = stringReplace( model, "\\", "/" )
+    model = stringGsub( model, "[\\/]+", "/" )
+
+    if stringFind(model, "../", 1, true) then
         return true, "The model path goes up in the folder tree."
     end
 
-    local found = FPP.BlockedModels[model]
-    if tobool(FPP.Settings.FPP_BLOCKMODELSETTINGS1.iswhitelist) and not found then
+    local found = rawget( blockedModels, model )
+    local isWhiteList = tobool( rawget( blockedModelSettings, "iswhitelist" ) )
+
+    if isWhiteList and not found then
         -- Prop is not in the white list
         return true, "The model of this entity is not in the white list!"
-    elseif not tobool(FPP.Settings.FPP_BLOCKMODELSETTINGS1.iswhitelist) and found then
+    elseif not isWhiteList and found then
         -- prop is in the black list
         return true, "The model of this entity is in the black list!"
     end
+
     return false
 end
 
-/*---------------------------------------------------------------------------
-Prevents spawning a prop or effect when its model is blocked
----------------------------------------------------------------------------*/
+---------------------------------------------------------------------------
+-- Prevents spawning a prop or effect when its model is blocked
+---------------------------------------------------------------------------
 local function propSpawn(ply, model)
     local blocked, msg = isBlocked(model)
+
     if blocked then
         FPP.Notify(ply, msg, false)
         return false
@@ -47,11 +75,12 @@ hook.Add("PlayerSpawnProp", "FPP_SpawnProp", propSpawn) -- PlayerSpawnObject isn
 hook.Add("PlayerSpawnEffect", "FPP_SpawnEffect", propSpawn)
 hook.Add("PlayerSpawnRagdoll", "FPP_SpawnEffect", propSpawn)
 
-/*---------------------------------------------------------------------------
-Setting owner when someone spawns something
----------------------------------------------------------------------------*/
+---------------------------------------------------------------------------
+-- Setting owner when someone spawns something
+---------------------------------------------------------------------------
 if cleanup then
     FPP.oldcleanup = FPP.oldcleanup or cleanup.Add
+
     function cleanup.Add(ply, Type, ent)
         if not IsValid(ply) or not IsValid(ent) then return FPP.oldcleanup(ply, Type, ent) end
 
@@ -84,11 +113,14 @@ end
 
 if PLAYER.AddCount then
     FPP.oldcount = FPP.oldcount or PLAYER.AddCount
+
     function PLAYER:AddCount(Type, ent)
-        if not IsValid(self) or not IsValid(ent) then return FPP.oldcount(self, Type, ent) end
-        --Set the owner of the entity
-        ent:CPPISetOwner(self)
-        return FPP.oldcount(self, Type, ent)
+        local oldCount = rawget( FPP, "oldcount" )(self, Type, ent)
+        if not IsValid( self ) then return oldCount end
+        if not IsValid( ent ) then return oldCount end
+
+        ent:CPPISetOwner( self )
+        return oldCount
     end
 end
 
@@ -105,7 +137,7 @@ if undo then
     local Undo = {}
     local UndoPlayer
     function undo.AddEntity(ent, ...)
-        if not isbool(ent) and IsValid(ent) then table.insert(Undo, ent) end
+        if not isbool(ent) and IsValid(ent) then tableInsert(Undo, ent) end
         AddEntity(ent, ...)
     end
 
@@ -116,8 +148,9 @@ if undo then
 
     function undo.Finish(...)
         if IsValid(UndoPlayer) then
-            for _, v in pairs(Undo) do
-                v:CPPISetOwner(UndoPlayer)
+            local undoLength = #Undo
+            for i = 1, undoLength do
+                rawget( Undo, i ):CPPISetOwner(UndoPlayer)
             end
         end
         Undo = {}
@@ -143,24 +176,39 @@ FPP.Protect = {}
 
 --Physgun Pickup
 function FPP.Protect.PhysgunPickup(ply, ent)
-    if not tobool(FPP.Settings.FPP_PHYSGUN1.toggle) then if FPP.UnGhost then FPP.UnGhost(ply, ent) end return end
+    local settings = rawget( FPP, "Settings" )
+    local physgun1 = rawget( settings, "FPP_PHYSGUN1" )
+    local physgunToggle = tobool( rawget( physgun1, "toggle" ) )
+
+    local unGhost = rawget( FPP, "UnGhost" )
+
+    if not physgunToggle then
+        if unGhost then
+            unGhost(ply, ent)
+        end
+
+        return
+    end
+
     if not ent:IsValid() then return end
     local cantouch
     local skipReturn = false
 
-    if isfunction(ent.PhysgunPickup) then
+    local physgunPickup = ent.PhysgunPickup
+
+    if isfunction( physgunPickup ) then
         cantouch = ent:PhysgunPickup(ply, ent)
         -- Do not return the value, the gamemode will do this
         -- Allows other hooks to run
         skipReturn = true
-    elseif ent.PhysgunPickup ~= nil then
-        cantouch = ent.PhysgunPickup
+    elseif physgunPickup ~= nil then
+        cantouch = physgunPickup
     else
-        cantouch = not ent:IsPlayer() and FPP.plyCanTouchEnt(ply, ent, "Physgun")
+        cantouch = not ent:IsPlayer() and rawget( FPP, "plyCanTouchEnt" )( ply, ent, "Physgun" )
         skipReturn = ent:IsPlayer()
     end
 
-    if cantouch and FPP.UnGhost then FPP.UnGhost(ply, ent) end
+    if cantouch and unGhost then unGhost( ply, ent ) end
     if not cantouch and not skipReturn then return false end
 end
 hook.Add("PhysgunPickup", "FPP.Protect.PhysgunPickup", FPP.Protect.PhysgunPickup)
@@ -547,15 +595,21 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
 end
 hook.Add("CanTool", "FPP.Protect.CanTool", FPP.Protect.CanTool)
 
+local canProperty
 function FPP.Protect.CanEditVariable(ent, ply, key, varVal, editTbl)
-    local val = FPP.Protect.CanProperty(ply, "editentity", ent)
+    canProperty = canProperty or FPP.Protect.CanProperty
+
+    local val = canProperty( ply, "editentity", ent )
     if val ~= nil then return val end
 end
 hook.Add("CanEditVariable", "FPP.Protect.CanEditVariable", FPP.Protect.CanEditVariable)
 
+local plyCanTouchEnt
 function FPP.Protect.CanProperty(ply, property, ent)
+    plyCanTouchEnt = plyCanTouchEnt or FPP.plyCanTouchEnt
+
     -- Use Toolgun because I'm way too lazy to make a new type
-    local cantouch = FPP.plyCanTouchEnt(ply, ent, "Toolgun")
+    local cantouch = plyCanTouchEnt( ply, ent, "Toolgun" )
 
     if not cantouch then return false end
 end
@@ -663,13 +717,16 @@ function FPP.PlayerInitialSpawn(ply)
         umsg.End()
     end)
 
-    local entities = {}
+    local allEnts = ents.GetAll()
     if FPP.DisconnectedPlayers[SteamID] then -- Check if the player has rejoined within the auto remove time
-        for _, v in ipairs(ents.GetAll()) do
+        local entCount = #allEnts
+
+        for i = 1, entCount do
+            local v = rawget( allEnts, i )
+
             if (v.FPPOwnerID == SteamID or v.FPPFallbackOwner == SteamID or v:GetNW2String("FPP_OriginalOwner") == SteamID) then
                 v.FPPFallbackOwner = nil
                 v:CPPISetOwner(ply)
-                table.insert(entities, v)
 
                 if v:GetNW2String("FPP_OriginalOwner", "") ~= "" then
                     v:SetNW2String("FPP_OriginalOwner", "")
@@ -679,22 +736,30 @@ function FPP.PlayerInitialSpawn(ply)
     end
 
     local plys = {}
-    for _, v in ipairs(player.GetAll()) do if v ~= ply then table.insert(plys, v) end end
+    for _, v in ipairs(player.GetAll()) do if v ~= ply then tableInsert(plys, v) end end
 
     timer.Create("FPP_recalculate_cantouch_" .. ply:UserID(), 0, 1, function()
-        FPP.recalculateCanTouch({ply}, ents.GetAll())
+        FPP.recalculateCanTouch({ply}, allEnts)
     end)
 end
 hook.Add("PlayerInitialSpawn", "FPP.PlayerInitialSpawn", FPP.PlayerInitialSpawn)
 
 local backup = ENTITY.FireBullets
-local blockedEffects = {"particleeffect", "smoke", "vortdispel", "helicoptermegabomb"}
+local blockedEffects = {
+    particleeffect = true,
+    smoke = true,
+    vortdispel = true,
+    helicoptermegabomb = true
+}
 
 function ENTITY:FireBullets(bullet, ...)
-    if not bullet.TracerName then return backup(self, bullet, ...) end
-    if table.HasValue(blockedEffects, string.lower(bullet.TracerName)) then
-        bullet.TracerName = ""
+    local tracerName = rawget( bullet, "TracerName" )
+    if not tracerName then return backup(self, bullet, ...) end
+
+    if rawget( blockedEffects, stringLower( tracerName ) ) then
+        rawset( bullet, "TracerName", "" )
     end
+
     return backup(self, bullet, ...)
 end
 
@@ -702,12 +767,15 @@ end
 -- One should not be able to constrain doors to anything
 local canConstrain = constraint.CanConstrain
 local disallowedConstraints = {
-    ["prop_door_rotating"] = true,
-    ["func_door"] = true,
-    ["func_breakable_surf"] = true
+    prop_door_rotating = true,
+    func_door = true,
+    func_breakable_surf = true
 }
 function constraint.CanConstrain(ent, bone)
-    if IsValid(ent) and disallowedConstraints[string.lower(ent:GetClass())] then return false end
+    if IsValid( ent ) then
+        local isBlocked = rawget( disallowedConstraints, stringLower( ent:GetClass() ) )
+        if isBlocked then return false end
+    end
 
     return canConstrain(ent, bone)
 end
@@ -721,5 +789,5 @@ function ENTITY:SetAngles(ang)
     ang.y = ang.y % 360
     ang.r = ang.r % 360
 
-    return setAngles(self, ang)
+    return setAngles( self, ang )
 end
