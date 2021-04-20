@@ -718,7 +718,7 @@ function FPP.PlayerInitialSpawn(ply)
     end)
 
     local allEnts = ents.GetAll()
-    if FPP.DisconnectedPlayers[SteamID] then -- Check if the player has rejoined within the auto remove time
+    if rawget( rawget( FPP, "DisconnectedPlayers" ), SteamID ) then -- Check if the player has rejoined within the auto remove time
         local entCount = #allEnts
 
         for i = 1, entCount do
@@ -734,9 +734,6 @@ function FPP.PlayerInitialSpawn(ply)
             end
         end
     end
-
-    local plys = {}
-    for _, v in ipairs(player.GetAll()) do if v ~= ply then tableInsert(plys, v) end end
 
     timer.Create("FPP_recalculate_cantouch_" .. ply:UserID(), 0, 1, function()
         FPP.recalculateCanTouch({ply}, allEnts)

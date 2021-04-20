@@ -236,7 +236,6 @@ end
 -- try not to call this with both player.GetAll() and ents.GetAll()
 local function recalculateCanTouch(players, entities)
     local playersCount = #players
-    local entsCount = #entities
 
     local removeIfNeeded = function( i, v )
         if not IsValid(v) then
@@ -260,19 +259,19 @@ local function recalculateCanTouch(players, entities)
         end
     end
 
+    local entsCount = #entities
+
     for i = 1, entsCount do
         local v = rawget( entities, i )
         removeIfNeeded( i, v )
     end
 
-    entsCount = #entities
     local calculateCanTouch = FPP.calculateCanTouch
 
     for p = 1, playersCount do
         local ply = rawget( players, p )
 
         if IsValid( ply ) then
-            -- optimisations
             ply.FPPIsAdmin = ply.FPP_Privileges.FPP_TouchOtherPlayersProps
             ply.FPP_PrivateSettings_OtherPlayerProps = ply:GetInfo("FPP_PrivateSettings_OtherPlayerProps")
             ply.cl_pickupplayers = ply:GetInfo("cl_pickupplayers")
@@ -283,13 +282,16 @@ local function recalculateCanTouch(players, entities)
 
             for i = 1, entsCount do
                 local ent = rawget( entities, i )
-                local hasChanged = calculateCanTouch( ply, ent )
-                if hasChanged then tableInsert( changed, ent ) end
+
+                -- May have been removed for being ineligible
+                if ent then
+                    local hasChanged = calculateCanTouch( ply, ent )
+                    if hasChanged then tableInsert( changed, ent ) end
+                end
             end
 
             FPP.plySendTouchData( ply, changed )
 
-            -- end optimisations
             ply.FPP_PrivateSettings_OtherPlayerProps = nil
             ply.cl_pickupplayers = nil
             ply.FPP_PrivateSettings_BlockedProps = nil

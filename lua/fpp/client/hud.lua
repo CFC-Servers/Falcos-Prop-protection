@@ -200,7 +200,7 @@ local function HUDPaint()
     for i = 1, HUDNotesCount do
         local v = rawget( HUDNotes, i )
         if v ~= 0 and v.recv + 6 < SysTime() then
-            rawset( HUDNotes, k, 0 )
+            rawset( HUDNotes, i, 0 )
             HUDNote_c = HUDNote_c - 1
             if (HUDNote_c == 0) then HUDNotes = {} end
         end
