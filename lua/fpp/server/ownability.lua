@@ -556,12 +556,14 @@ function FPP.RecalculateConstrainedEntities( players, entities )
                 local constraintsCount = #constraints
                 for i = 1, constraintsCount do
                     local constr = rawget( constraints, i )
-                    local otherEnt = constr.Ent1 == value and constr.Ent2 or constr.Ent1
+                    if constr then
+                        local otherEnt = constr.Ent1 == value and constr.Ent2 or constr.Ent1
 
-                    if IsValid( otherEnt ) and ( rawget( gray, otherEnt ) == nil ) and ( rawget( black, otherEnt ) == nil ) then
-                        rawset( gray, otherEnt, true )
-                        rawset( BFSQueue, right, otherEnt )
-                        right = right + 1
+                        if IsValid( otherEnt ) and ( rawget( gray, otherEnt ) == nil ) and ( rawget( black, otherEnt ) == nil ) then
+                            rawset( gray, otherEnt, true )
+                            rawset( BFSQueue, right, otherEnt )
+                            right = right + 1
+                        end
                     end
                 end
 
