@@ -540,6 +540,8 @@ function FPP.RecalculateConstrainedEntities( players, entities )
 
         local function handleEnt( ent )
             if rawget( discovered, ent ) then return end -- We've seen this ent in a graph
+            if not IsValid( ent ) then return end
+
             ent.FPPCanTouch = ent.FPPCanTouch or {}
             rawset( ent.FPPCanTouch, ply, rawget( ent.FPPCanTouch, ply ) or 0 )
 
