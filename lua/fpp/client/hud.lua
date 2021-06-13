@@ -1,5 +1,25 @@
 FPP = FPP or {}
 
+local rawget = rawget
+local rawset = rawset
+
+local LocalPlayer = LocalPlayer
+local IsValid = IsValid
+local SysTime = SysTime
+local RealFrameTime = RealFrameTime
+local Color = Color
+
+local ScrW = ScrW
+local ScrH = ScrH
+
+local tableInsert = table.insert
+
+local mathAbs = math.abs
+
+local TEXT_ALIGN_RIGHT = TEXT_ALIGN_RIGHT
+
+local FindAlongRay = ents.FindAlongRay
+
 surface.CreateFont("TabLarge", {
     size = 17,
     weight = 700,
@@ -8,7 +28,9 @@ surface.CreateFont("TabLarge", {
     font = "Trebuchet MS"})
 
 hook.Add("CanTool", "FPP_CL_CanTool", function(ply, trace, tool) -- Prevent client from SEEING his toolgun shoot while it doesn't shoot serverside.
-    if IsValid(trace.Entity) and not FPP.canTouchEnt(trace.Entity, "Toolgun") then
+    local traceEnt = rawget( trace, "Entity" )
+
+    if IsValid( traceEnt ) and not FPP.canTouchEnt(traceEnt, "Toolgun") then
         return false
     end
 end)
@@ -61,7 +83,7 @@ function FPP.AddNotify( str, type )
         tab.type = false
     end
 
-    table.insert( HUDNotes, tab )
+    tableInsert( HUDNotes, tab )
 
     HUDNote_c = HUDNote_c + 1
     HUDNote_i = HUDNote_i + 1
@@ -80,8 +102,10 @@ local function DrawNotice(k, v, i)
     local x = v.x - 75 * H
     local y = v.y - 20 * H - 2
 
+    local text = v.text
+
     surface_SetFont( "TabLarge" )
-    local w, h = surface_GetTextSize( v.text )
+    local w, h = surface_GetTextSize( text )
 
     w = w
     h = h + 10
@@ -96,11 +120,11 @@ local function DrawNotice(k, v, i)
 
     surface_SetDrawColor( 255, 255, 255, v.a )
 
-    draw_SimpleText(v.text, "TabLarge", x + 1, y + 1, Color(0, 0, 0, v.a * 0.8), TEXT_ALIGN_RIGHT)
-    draw_SimpleText(v.text, "TabLarge", x - 1, y - 1, Color(0, 0, 0, v.a * 0.5), TEXT_ALIGN_RIGHT)
-    draw_SimpleText(v.text, "TabLarge", x + 1, y - 1, Color(0, 0, 0, v.a * 0.6), TEXT_ALIGN_RIGHT)
-    draw_SimpleText(v.text, "TabLarge", x - 1, y + 1, Color(0, 0, 0, v.a * 0.6), TEXT_ALIGN_RIGHT)
-    draw_SimpleText(v.text, "TabLarge", x, y, Color(255, 255, 255, v.a), TEXT_ALIGN_RIGHT)
+    draw_SimpleText(text, "TabLarge", x + 1, y + 1, Color(0, 0, 0, v.a * 0.8), TEXT_ALIGN_RIGHT)
+    draw_SimpleText(text, "TabLarge", x - 1, y - 1, Color(0, 0, 0, v.a * 0.5), TEXT_ALIGN_RIGHT)
+    draw_SimpleText(text, "TabLarge", x + 1, y - 1, Color(0, 0, 0, v.a * 0.6), TEXT_ALIGN_RIGHT)
+    draw_SimpleText(text, "TabLarge", x - 1, y + 1, Color(0, 0, 0, v.a * 0.6), TEXT_ALIGN_RIGHT)
+    draw_SimpleText(text, "TabLarge", x, y, Color(255, 255, 255, v.a), TEXT_ALIGN_RIGHT)
 
     local ideal_y = ScrH() - (HUDNote_c - i) * h
     local ideal_x = ScrW() / 2 + w * 0.5 + (ScrW() / 20)
@@ -122,14 +146,14 @@ local function DrawNotice(k, v, i)
     local dist = ideal_y - v.y
     v.vely = v.vely + dist * spd * 1
 
-    if (math.abs(dist) < 2 and math.abs(v.vely) < 0.1) then
+    if (mathAbs(dist) < 2 and mathAbs(v.vely) < 0.1) then
         v.vely = 0
     end
 
     dist = ideal_x - v.x
     v.velx = v.velx + dist * spd * 1
 
-    if math.abs(dist) < 2 and math.abs(v.velx) < 0.1 then
+    if mathAbs(dist) < 2 and mathAbs(v.velx) < 0.1 then
         v.velx = 0
     end
 
@@ -146,9 +170,11 @@ local weaponClassTouchTypes = {
 
 local function FilterEntityTable(t)
     local filtered = {}
+    local entsCount = #t
 
-    for i, ent in ipairs(t) do
-        if (not ent:IsWeapon()) and (not ent:IsPlayer()) then table.insert(filtered, ent) end
+    for i = 1, entsCount do
+        local ent = rawget( t, i )
+        if (not ent:IsWeapon()) and (not ent:IsPlayer()) then tableInsert(filtered, ent) end
     end
 
     return filtered
@@ -159,16 +185,22 @@ local canTouchTextColor = Color(0, 255, 0, 255)
 local cannotTouchTextColor = Color(255, 0, 0, 255)
 local function HUDPaint()
     local i = 0
-    for k, v in pairs(HUDNotes) do
+
+    local HUDNotesCount = #HUDNotes
+
+    for i = 1, HUDNotesCount do
+        local v = rawget( HUDNotes, i )
+
         if v ~= 0 then
             i = i + 1
             DrawNotice(k, v, i)
         end
     end
 
-    for k, v in pairs(HUDNotes) do
+    for i = 1, HUDNotesCount do
+        local v = rawget( HUDNotes, i )
         if v ~= 0 and v.recv + 6 < SysTime() then
-            HUDNotes[ k ] = 0
+            rawset( HUDNotes, i, 0 )
             HUDNote_c = HUDNote_c - 1
             if (HUDNote_c == 0) then HUDNotes = {} end
         end
@@ -179,9 +211,9 @@ local function HUDPaint()
     --Show the owner:
     local ply = LocalPlayer()
 
-    local LAEnt2 = ents.FindAlongRay(ply:EyePos(), ply:EyePos() + EyeAngles():Forward() * 16384)
+    local LAEnt2 = FindAlongRay(ply:EyePos(), ply:EyePos() + EyeAngles():Forward() * 16384)
 
-    local LAEnt = FilterEntityTable(LAEnt2)[1]
+    local LAEnt = rawget( FilterEntityTable(LAEnt2), 1 )
     if not IsValid(LAEnt) then return end
     -- Prevent being able to see ownership through walls
     local eyeTrace = ply:GetEyeTrace()
@@ -190,7 +222,7 @@ local function HUDPaint()
     local weapon = ply:GetActiveWeapon()
     local class = weapon:IsValid() and weapon:GetClass() or ""
 
-    local touchType = weaponClassTouchTypes[class] or "EntityDamage"
+    local touchType = rawget( weaponClassTouchTypes, class ) or "EntityDamage"
     local reason = FPP.entGetTouchReason(LAEnt, touchType)
     if not reason then return end
     local originalOwner = LAEnt:GetNW2String("FPP_OriginalOwner")

@@ -48,6 +48,11 @@ if CAMI and CAMI.Version >= version then return end
 CAMI = CAMI or {}
 CAMI.Version = version
 
+local tableInsert = table.insert
+local rawget = rawget
+local rawset = rawset
+local IsValid = IsValid
+
 --[[
 usergroups
 	Contains the registered CAMI_USERGROUP usergroup structures.
@@ -154,7 +159,7 @@ CAMI.GetUsergroup
 			Returns nil when the usergroup does not exist.
 ]]
 function CAMI.GetUsergroup(usergroupName)
-	return usergroups[usergroupName]
+	return rawget( usergroups, usergroupName )
 end
 
 --[[
@@ -180,11 +185,12 @@ function CAMI.UsergroupInherits(usergroupName1, usergroupName2)
 	repeat
 		if usergroupName1 == usergroupName2 then return true end
 
-		usergroupName1 = usergroups[usergroupName1] and
-						 usergroups[usergroupName1].Inherits or
-						 usergroupName1
-	until not usergroups[usergroupName1] or
-		  usergroups[usergroupName1].Inherits == usergroupName1
+		local userGroupName1 = rawget( usergroups, usergroupName1 )
+		local inherits = userGroupName1 and rawget( userGroupName1, "Inherits" )
+		usergroupName1 = inherits or usergroupName1
+
+	until not rawget( usergroups, usergroupName1 ) or
+		  rawget( rawget( usergroups, usergroupName1 ), "Inherits" ) == usergroupName1
 
 	-- One can only be sure the usergroup inherits from user if the
 	-- usergroup isn't registered.
@@ -211,11 +217,12 @@ CAMI.InheritanceRoot
 			The name of the root usergroup (either user, admin or superadmin)
 ]]
 function CAMI.InheritanceRoot(usergroupName)
-	if not usergroups[usergroupName] then return end
+    local usergroupData = rawget( usergroups, usergroupName )
+    if not usergroupData then return end
 
-	local inherits = usergroups[usergroupName].Inherits
-	while inherits ~= usergroups[usergroupName].Inherits do
-		usergroupName = usergroups[usergroupName].Inherits
+	local inherits = rawget( usergroupData, "Inherits" )
+	while inherits ~= rawget( rawget( usergroups, usergroupName ), "Inherits" ) do
+		usergroupName = rawget( rawget( usergroups, usergroupName ), "Inherits" )
 	end
 
 	return usergroupName
@@ -343,21 +350,26 @@ local defaultAccessHandler = {["CAMI.PlayerHasAccess"] =
 		-- The server always has access in the fallback
 		if not IsValid(actorPly) then return callback(true, "Fallback.") end
 
-		local priv = privileges[privilegeName]
+		local priv = rawget( privileges, privilegeName )
+
+		local infoTblFallback = extraInfoTbl and rawget( extraInfoTbl, "Fallback" )
+		local isAdmin = actorPly:IsAdmin()
+		local isSuperAdmin = actorPly:IsSuperAdmin()
 
 		local fallback = extraInfoTbl and (
-			not extraInfoTbl.Fallback and actorPly:IsAdmin() or
-			extraInfoTbl.Fallback == "user" and true or
-			extraInfoTbl.Fallback == "admin" and actorPly:IsAdmin() or
-			extraInfoTbl.Fallback == "superadmin" and actorPly:IsSuperAdmin())
+			not infoTblFallback and isAdmin or
+			infoTblFallback == "user" and true or
+			infoTblFallback == "admin" and isAdmin or
+			infoTblFallback == "superadmin" and isSuperAdmin)
 
 
-		if not priv then return callback(fallback, "Fallback.") end
+		if not priv then return callback( fallback, "Fallback." ) end
 
+		local minAccess = rawget( priv, "MinAccess" )
 		callback(
-			priv.MinAccess == "user" or
-			priv.MinAccess == "admin" and actorPly:IsAdmin() or
-			priv.MinAccess == "superadmin" and actorPly:IsSuperAdmin()
+			minAccess == "user" or
+			minAccess == "admin" and isAdmin or
+			minAccess == "superadmin" and isSuperAdmin
 			, "Fallback.")
 	end,
 	["CAMI.SteamIDHasAccess"] =
@@ -408,16 +420,19 @@ function CAMI.GetPlayersWithAccess(privilegeName, callback, targetPly,
 extraInfoTbl)
 	local allowedPlys = {}
 	local allPlys = player.GetAll()
+	local allPlysCount = #allPlys
 	local countdown = #allPlys
 
 	local function onResult(ply, hasAccess, _)
 		countdown = countdown - 1
 
-		if hasAccess then table.insert(allowedPlys, ply) end
+		if hasAccess then tableInsert(allowedPlys, ply) end
 		if countdown == 0 then callback(allowedPlys) end
 	end
 
-	for _, ply in ipairs(allPlys) do
+	for i = 1, allPlysCount do
+	    local ply = rawget( allPlys, i )
+
 		CAMI.PlayerHasAccess(ply, privilegeName,
 			function(...) onResult(ply, ...) end,
 			targetPly, extraInfoTbl)
