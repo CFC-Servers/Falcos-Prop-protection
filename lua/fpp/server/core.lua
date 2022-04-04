@@ -8,10 +8,10 @@ local rawget = rawget
 local rawset = rawset
 local ipairs = ipairs
 local tonumber = tonumber
-local isnumber = isnumber
 local isentity = isentity
 local isfunction = isfunction
 local IsValid = IsValid
+local SafeRemoveEntity = SafeRemoveEntity
 
 
 local stringLower = string.lower
@@ -494,13 +494,13 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
 
     local playersToolRestrictions = FPP.RestrictedToolsPlayers or {}
     local toolRestrictions = playersToolRestrictions[tool] or {}
-    local playerToolRestriction = toolRestrictions[SteamID]
+    local playerToolRestrictions = toolRestrictions[SteamID]
 
     if playerToolRestrictions ~= nil then--Player specific
-        if playerToolRestrictions== false then
+        if playerToolRestrictions == false then
             FPP.Notify(ply, "Toolgun restricted for you!", false)
             return false
-        elseif playerToolRestrictions== true then
+        elseif playerToolRestrictions == true then
             ignoreGeneralRestrictTool = true --If someone is allowed, then he's allowed even though he's not admin, so don't check for further restrictions
         end
     end
@@ -514,26 +514,29 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
             CanGroup = false
         end
 
-        local toolRestrictions = FPP.RestrictedTools[tool]
+        local restrictionsForTool = FPP.RestrictedTools[tool]
 
-        if toolRestrictions then
-            local adminSetting = tonumber(toolRestrictions.admin)
+        if restrictionsForTool then
+            local adminSetting = tonumber(restrictionsForTool.admin)
+            local isAdmin = ply:IsAdmin()
+            local isSuperAdmin = ply:IsSuperAdmin()
 
-            if adminSetting == 1 and not ply:IsAdmin() then
+            if adminSetting == 1 and not isAdmin then
                 FPP.Notify(ply, "Toolgun restricted! Admin only!", false)
                 return false
-            elseif adminSetting == 2 and not ply:IsSuperAdmin() then
+            elseif adminSetting == 2 and not isSuperAdmin then
                 FPP.Notify(ply, "Toolgun restricted! Superadmin only!", false)
                 return false
-            elseif (adminSetting == 1 and ply:IsAdmin()) or (adminSetting == 2 and ply:IsSuperAdmin()) then
+            elseif (adminSetting == 1 and isAdmin) or (adminSetting == 2 and isSuperAdmin) then
                 CanGroup = true -- If the person is not in the BUT has admin access, he should be able to use the tool
             end
 
             local plyTeam = ply:Team()
             local isTeamRestricted = (_toolTeamCache[tool] or {})[plyTeam]
-            isTeamRestricted = isTeamRestricted ~= nil and isTeamRestricted or table.HasValue(toolRestrictions.team, plyTeam)
+            -- TODO: Get rid of the table.HasValues here
+            isTeamRestricted = isTeamRestricted ~= nil and isTeamRestricted or table.HasValue(restrictionsForTool.team, plyTeam)
 
-            if toolRestrictions.team and #toolRestrictions.team > 0 and not table.HasValue(toolRestrictions.team, ply:Team()) then
+            if restrictionsForTool.team and #restrictionsForTool.team > 0 and not table.HasValue(restrictionsForTool.team, ply:Team()) then
                 FPP.Notify(ply, "Toolgun restricted! incorrect team!", false)
                 return false
             end
@@ -630,15 +633,15 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
 
         if duplicatorProtect and (not plyIsAdmin or (plyIsAdmin and not adminCanBlocked)) then
             local setspawning = spawnIsWhitelist
-            local isBlocked = blockedClasses[vClass]
+            local isClassBlocked = blockedClasses[vClass]
 
-            if not spawnIsWhitelist and isBlocked then
+            if not spawnIsWhitelist and isClassBlocked then
                 FPP.Notify(ply, "Duplicating blocked entity " .. vClass, false)
                 EntTable[k] = nil
             end
 
             -- if the whitelist is on you can't spawn it unless it's found
-            if spawnIsWhitelist and isBlocked then
+            if spawnIsWhitelist and isClassBlocked then
                 setspawning = false
             end
 
@@ -681,15 +684,38 @@ function FPP.Protect.CanDrive(ply, ent)
 end
 hook.Add("CanDrive", "FPP.Protect.CanDrive", FPP.Protect.CanDrive)
 
+local function handleEntsOnDisconnect( plySteamID, fallbackSteamID )
+    local shouldFreeze = tobool( FPP.Settings.FPP_GLOBALSETTINGS1.freezedisconnected )
+    local fallbackPly = fallbackSteamID and player.GetBySteamID( fallbackSteamID )
+    fallbackPly = IsValid( fallbackPly ) and fallbackPly
 
-local function freezeDisconnected(ply)
-    local SteamID = ply:SteamID()
+    if not fallbackPly and not shouldFreeze then return end -- Nothing to do
 
-    for _, ent in ipairs(ents.GetAll()) do
-        local physObj = ent:GetPhysicsObject()
-        if ent.FPPOwnerID ~= SteamID or ent:GetPersistent() or not physObj:IsValid() then continue end
+    local allEnts = ents.GetAll()
+    local entCount = #allEnts
 
-        physObj:EnableMotion(false)
+    for i = 1, entCount do
+        local ent = rawget( allEnts, i )
+
+        if ent.FPPOwnerID == plySteamID and ( not ent:GetPersistent() ) then
+            -- Freeze
+            if shouldFreeze then
+                local phys = ent:GetPhysicsObject()
+                if IsValid( phys ) then
+                    phys:EnableMotion( false )
+                end
+            end
+
+            -- Fallback
+            if fallbackPly then
+                ent.FPPFallbackOwner( fallbackSteamID )
+                ent:CPPISetOwner( fallbackPly )
+
+                if ent:GetNW2String( "FPP_OriginalOwner", "" ) == "" then
+                    ent:SetNW2String( "FPP_OriginalOwner", plySteamID )
+                end
+            end
+        end
     end
 end
 
@@ -697,45 +723,15 @@ end
 function FPP.PlayerDisconnect(ply)
     if not IsValid(ply) then return end
 
-    local SteamID = ply:SteamID()
-    FPP.DisconnectedPlayers[SteamID] = true
+    local plySteamID = ply:SteamID()
+    FPP.DisconnectedPlayers[plySteamID] = true
 
     if tobool(FPP.Settings.FPP_GLOBALSETTINGS1.freezedisconnected) then
-        freezeDisconnected(ply)
+        freezeDisconnected( ply )
     end
 
-    if ply.FPPFallbackOwner then
-        -- FPP.DisconnectedOriginalOwners = FPP.DisconnectedOriginalOwners or {}
-        -- FPP.DisconnectedOriginalOwners[SteamID] = {props = {}}
-
-
-        local fallback = player.GetBySteamID(ply.FPPFallbackOwner)
-        for _, v in ipairs(ents.GetAll()) do
-            if v.FPPOwnerID ~= SteamID or v:GetPersistent() then continue end
-
-            v.FPPFallbackOwner = ply.FPPFallbackOwner
-
-            if IsValid(fallback) then
-                v:CPPISetOwner(fallback)
-            end
-
-            -- table.insert(FPP.DisconnectedOriginalOwners[SteamID].props, v)
-
-            -- Only set when not set already
-            -- this prevents the original owner being set again
-            -- when the fallback hands their props over to a second
-            -- (or third, or nth) fallback
-            if v:GetNW2String("FPP_OriginalOwner", "") == "" then
-                v:SetNW2String("FPP_OriginalOwner", SteamID)
-            end
-        end
-
-        -- Create disconnect timer if fallback is not in server
-        -- ownership is transferred immediately when fallback is in server
-        if IsValid(fallback) then
-            return
-        end
-    end
+    local fallbackSteamID = ply.FPPFallbackOwner
+    handleEntsOnDisconnect( plySteamID, fallbackSteamID )
 
     if not tobool(FPP.Settings.FPP_GLOBALSETTINGS1.cleanupdisconnected) or
     not FPP.Settings.FPP_GLOBALSETTINGS1.cleanupdisconnectedtime then
@@ -746,17 +742,19 @@ function FPP.PlayerDisconnect(ply)
 
     timer.Simple(FPP.Settings.FPP_GLOBALSETTINGS1.cleanupdisconnectedtime, function()
         if not tobool(FPP.Settings.FPP_GLOBALSETTINGS1.cleanupdisconnected) then return end -- Settings can change in time.
+        if IsValid( player.GetBySteamID( plySteamID ) ) then return end -- Player has returned, don't clean up their props
 
-        for _, v in ipairs(player.GetAll()) do
-            if v:SteamID() == SteamID then
-                return
+        local allEnts = ents.GetAll()
+        local entCount = #allEnts
+        for i = 1, entCount do
+            local ent = rawget( allEnts, i )
+
+            if ent.FPPOwnerID == plySteamID and (not ent:GetPersistent()) then
+                SafeRemoveEntity( ent )
             end
         end
-        for _, v in ipairs(ents.GetAll()) do
-            if v.FPPOwnerID ~= SteamID or v:GetPersistent() then continue end
-            v:Remove()
-        end
-        FPP.DisconnectedPlayers[SteamID] = nil -- Player out of the Disconnect table
+
+        FPP.DisconnectedPlayers[plySteamID] = nil -- Player out of the Disconnect table
     end)
 end
 hook.Add("PlayerDisconnected", "FPP.PlayerDisconnect", FPP.PlayerDisconnect)
@@ -828,8 +826,8 @@ local disallowedConstraints = {
 }
 function constraint.CanConstrain(ent, bone)
     if IsValid( ent ) then
-        local isBlocked = rawget( disallowedConstraints, stringLower( ent:GetClass() ) )
-        if isBlocked then return false end
+        local isClassBlocked = rawget( disallowedConstraints, stringLower( ent:GetClass() ) )
+        if isClassBlocked then return false end
     end
 
     return canConstrain(ent, bone)
