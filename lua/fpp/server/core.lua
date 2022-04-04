@@ -7,7 +7,12 @@ local ENTITY = FindMetaTable("Entity")
 local rawget = rawget
 local rawset = rawset
 local ipairs = ipairs
+local tonumber = tonumber
+local isnumber = isnumber
+local isentity = isentity
+local isfunction = isfunction
 local IsValid = IsValid
+
 
 local stringLower = string.lower
 local stringReplace = string.Replace
@@ -467,20 +472,38 @@ local invalidToolData = {
 invalidToolData.override = invalidToolData.material
 invalidToolData.rope_material = invalidToolData.material
 
+local dupeLimitedTools = {
+    ["adv_duplicator"] = true,
+    ["duplicator"] = true,
+    ["advdupe2"] = true
+}
+
+local _lowerCache = {}
+local _isWeaponCache = {}
+
+-- Aims to cache the result of:
+-- table.HasValue(FPP.RestrictedTools[tool]["team"], ply:Team())
+-- { [tool] = { [ply:Team()] = table.HasValue(FPP.RestrictedTools[tool]["team"]) } }
+local _toolTeamCache = {}
+
 function FPP.Protect.CanTool(ply, trace, tool, ENT)
+    if not IsValid(ply) then return false end
+
     local ignoreGeneralRestrictTool = false
     local SteamID = ply:SteamID()
 
-    FPP.RestrictedToolsPlayers = FPP.RestrictedToolsPlayers or {}
-    if FPP.RestrictedToolsPlayers[tool] and FPP.RestrictedToolsPlayers[tool][SteamID] ~= nil then--Player specific
-        if FPP.RestrictedToolsPlayers[tool][SteamID] == false then
+    local playersToolRestrictions = FPP.RestrictedToolsPlayers or {}
+    local toolRestrictions = playersToolRestrictions[tool] or {}
+    local playerToolRestriction = toolRestrictions[SteamID]
+
+    if playerToolRestrictions ~= nil then--Player specific
+        if playerToolRestrictions== false then
             FPP.Notify(ply, "Toolgun restricted for you!", false)
             return false
-        elseif FPP.RestrictedToolsPlayers[tool][SteamID] == true then
+        elseif playerToolRestrictions== true then
             ignoreGeneralRestrictTool = true --If someone is allowed, then he's allowed even though he's not admin, so don't check for further restrictions
         end
     end
-
 
     if not ignoreGeneralRestrictTool then
         local Group = FPP.Groups[FPP.GroupMembers[SteamID]] or FPP.Groups[ply:GetUserGroup()] or FPP.Groups.default  -- What group is the player in. If not in a special group, then he's in default group
@@ -491,60 +514,74 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
             CanGroup = false
         end
 
-        if FPP.RestrictedTools[tool] then
-            if tonumber(FPP.RestrictedTools[tool].admin) == 1 and not ply:IsAdmin() then
+        local toolRestrictions = FPP.RestrictedTools[tool]
+
+        if toolRestrictions then
+            local adminSetting = tonumber(toolRestrictions.admin)
+
+            if adminSetting == 1 and not ply:IsAdmin() then
                 FPP.Notify(ply, "Toolgun restricted! Admin only!", false)
                 return false
-            elseif tonumber(FPP.RestrictedTools[tool].admin) == 2 and not ply:IsSuperAdmin() then
+            elseif adminSetting == 2 and not ply:IsSuperAdmin() then
                 FPP.Notify(ply, "Toolgun restricted! Superadmin only!", false)
                 return false
-            elseif (tonumber(FPP.RestrictedTools[tool].admin) == 1 and ply:IsAdmin()) or (tonumber(FPP.RestrictedTools[tool].admin) == 2 and ply:IsSuperAdmin()) then
+            elseif (adminSetting == 1 and ply:IsAdmin()) or (adminSetting == 2 and ply:IsSuperAdmin()) then
                 CanGroup = true -- If the person is not in the BUT has admin access, he should be able to use the tool
             end
 
-            if FPP.RestrictedTools[tool]["team"] and #FPP.RestrictedTools[tool]["team"] > 0 and not table.HasValue(FPP.RestrictedTools[tool]["team"], ply:Team()) then
+            local plyTeam = ply:Team()
+            local isTeamRestricted = (_toolTeamCache[tool] or {})[plyTeam]
+            isTeamRestricted = isTeamRestricted ~= nil and isTeamRestricted or table.HasValue(toolRestrictions.team, plyTeam)
+
+            if toolRestrictions.team and #toolRestrictions.team > 0 and not table.HasValue(toolRestrictions.team, ply:Team()) then
                 FPP.Notify(ply, "Toolgun restricted! incorrect team!", false)
                 return false
             end
         end
 
         if not CanGroup then
-            FPP.Notify(ply, "Toolgun restricted! incorrect group!", false)
+            FPP.Notify(ply, "Toolgun restricted! incorrect rank!", false)
             return false
         end
     end
 
+    -- We don't need no stinkin' anticrash -Phatso
+    --
     -- Anti server crash
-    if IsValid(ply:GetActiveWeapon()) and ply:GetActiveWeapon().GetToolObject and ply:GetActiveWeapon():GetToolObject() then
-        local toolObj = ply:GetActiveWeapon():GetToolObject()
-        for t, block in pairs(invalidToolData) do
-            local clientInfo = string.lower(toolObj:GetClientInfo(t) or "")
-            -- Check for number limits
-            if isnumber(block) then
-                local num = tonumber(clientInfo) or 0
-                if num > block or num < -block then
-                    FPP.Notify(ply, "The client settings of the tool are invalid!", false)
-                    return false
-                end
-                continue
-            end
+    -- local wep = ply:GetActiveWeapon()
+    -- local toolObj = IsValid(wep) and wep.GetToolObject and wep:GetToolObject()
 
-            for _, item in pairs(block) do
-                if string.find(clientInfo, item, 1, true) then
-                    FPP.Notify(ply, "The client settings of the tool are invalid!", false)
-                    return false
-                end
-            end
-        end
-    end
+    -- if toolObj then
+    --     local toolObj = ply:GetActiveWeapon():GetToolObject()
 
-    local ent = IsEntity(ENT) and ENT or trace and trace.Entity
+    --     for t, block in pairs(invalidToolData) do
+    --         local clientInfo = stringLower(toolObj:GetClientInfo(t) or "")
+    --         -- Check for number limits
+    --         if isnumber(block) then
+    --             local num = tonumber(clientInfo) or 0
+    --             if num > block or num < -block then
+    --                 FPP.Notify(ply, "The client settings of the tool are invalid!", false)
+    --                 return false
+    --             end
+    --             continue
+    --         end
 
-    if IsEntity(ent) and isfunction(ent.CanTool) and ent:GetClass() ~= "gmod_cameraprop" and ent:GetClass() ~= "gmod_rtcameraprop" then
+    --         for _, item in pairs(block) do
+    --             if stringFind(clientInfo, item, 1, true) then
+    --                 FPP.Notify(ply, "The client settings of the tool are invalid!", false)
+    --                 return false
+    --             end
+    --         end
+    --     end
+    -- end
+
+    local ent = isentity(ENT) and ENT or trace and trace.Entity
+
+    if isentity(ent) and isfunction(ent.CanTool) and ent:GetClass() ~= "gmod_cameraprop" and ent:GetClass() ~= "gmod_rtcameraprop" then
         local val = ent:CanTool(ply, trace, tool, ENT)
         -- Do not return the value, the gamemode will do this
         if val ~= nil then return end
-    elseif IsEntity(ent) and ent.CanTool ~= nil and ent:GetClass() ~= "gmod_cameraprop" and ent:GetClass() ~= "gmod_rtcameraprop" then
+    elseif isentity(ent) and ent.CanTool ~= nil and ent:GetClass() ~= "gmod_cameraprop" and ent:GetClass() ~= "gmod_rtcameraprop" then
         return ent.CanTool
     end
 
@@ -554,7 +591,7 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
         if not cantouch then return false end
     end
 
-    if tool ~= "adv_duplicator" and tool ~= "duplicator" and tool ~= "advdupe2" then return end
+    if not dupeLimitedTools[tool] then return end
     if not ENT and not FPP.AntiSpam.DuplicatorSpam(ply) then return false end
 
     local EntTable =
@@ -565,34 +602,53 @@ function FPP.Protect.CanTool(ply, trace, tool, ENT)
     if not EntTable then return end
 
 
+    local plyIsAdmin = ply:IsAdmin()
+
+    local noWeapons = tobool(FPP.Settings.FPP_TOOLGUN1.duplicatenoweapons)
+    local adminCanWeapon = tobool(FPP.Settings.FPP_TOOLGUN1.spawnadmincanweapon)
+
+    local duplicatorProtect = tobool(FPP.Settings.FPP_TOOLGUN1.duplicatorprotect)
+    local adminCanBlocked = tobool(FPP.Settings.FPP_TOOLGUN1.spawnadmincanblocked)
+    local spawnIsWhitelist = tobool(FPP.Settings.FPP_TOOLGUN1.spawniswhitelist)
+
+    local blockedClasses = FPP.Blocked.Spawning1
+
     for k, v in pairs(EntTable) do
-        local lowerClass = string.lower(v.Class)
-
-        if tobool(FPP.Settings.FPP_TOOLGUN1.duplicatenoweapons) and
-          (not ply:IsAdmin() or (ply:IsAdmin() and not tobool(FPP.Settings.FPP_TOOLGUN1.spawnadmincanweapon))) and
-          (allweapons[lowerClass] or string.find(lowerClass, "ai_") == 1 or string.find(lowerClass, "item_ammo_") == 1) then
-            FPP.Notify(ply, "Duplicating blocked entity " .. lowerClass, false)
-            EntTable[k] = nil
+        local vClass = _lowerCache[v.Class]
+        if vClass then
+            vClass = stringLower(v.Class)
+            _lowerCache[v.Class] = vClass
         end
-        if tobool(FPP.Settings.FPP_TOOLGUN1.duplicatorprotect) and (not ply:IsAdmin() or (ply:IsAdmin() and not tobool(FPP.Settings.FPP_TOOLGUN1.spawnadmincanblocked))) then
-            local setspawning = tobool(FPP.Settings.FPP_TOOLGUN1.spawniswhitelist)
 
-            if not tobool(FPP.Settings.FPP_TOOLGUN1.spawniswhitelist) and FPP.Blocked.Spawning1[lowerClass] then
-                FPP.Notify(ply, "Duplicating blocked entity " .. lowerClass, false)
+        if noWeapons and
+          (not plyIsAdmin or (plyIsAdmin and not adminCanWeapon)) and
+          (allweapons[vClass] or _isWeaponCache[vClass] or stringFind(vClass, "ai_") == 1 or stringFind(vClass, "item_ammo_") == 1) then
+            FPP.Notify(ply, "Duplicating blocked entity " .. vClass, false)
+            EntTable[k] = nil
+            _isWeaponCache[vClass] = true
+        end
+
+        if duplicatorProtect and (not plyIsAdmin or (plyIsAdmin and not adminCanBlocked)) then
+            local setspawning = spawnIsWhitelist
+            local isBlocked = blockedClasses[vClass]
+
+            if not spawnIsWhitelist and isBlocked then
+                FPP.Notify(ply, "Duplicating blocked entity " .. vClass, false)
                 EntTable[k] = nil
             end
 
             -- if the whitelist is on you can't spawn it unless it's found
-            if tobool(FPP.Settings.FPP_TOOLGUN1.spawniswhitelist) and FPP.Blocked.Spawning1[lowerClass] then
+            if spawnIsWhitelist and isBlocked then
                 setspawning = false
             end
 
             if setspawning then
-                FPP.Notify(ply, "Duplicating blocked entity " .. lowerClass, false)
+                FPP.Notify(ply, "Duplicating blocked entity " .. vClass, false)
                 EntTable[k] = nil
             end
         end
     end
+
     return
 end
 hook.Add("CanTool", "FPP.Protect.CanTool", FPP.Protect.CanTool)
