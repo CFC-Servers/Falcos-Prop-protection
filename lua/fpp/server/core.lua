@@ -23,7 +23,7 @@ local isfunction = isfunction
 ---------------------------------------------------------------------------
 -- Checks is a model is blocked
 ---------------------------------------------------------------------------
-local function isBlocked(model)
+function FPP.IsBlockedModel(model)
     if not model then return end
     if model == "" then return end
 
@@ -58,6 +58,7 @@ local function isBlocked(model)
 
     return false
 end
+local isBlocked = FPP.IsBlockedModel
 
 ---------------------------------------------------------------------------
 -- Prevents spawning a prop or effect when its model is blocked
