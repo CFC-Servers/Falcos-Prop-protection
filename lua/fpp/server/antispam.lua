@@ -147,8 +147,10 @@ local function e2AntiMinge()
         -- it would make it possible to get around this with constrained ents
         local ConstrainedEnts = constraint.GetAllConstrainedEntities(ent)
         if ConstrainedEnts then -- Includes original entity
-            for _, v in pairs(ConstrainedEnts) do
-                v:SetCollisionGroup(COLLISION_GROUP_WEAPON)
+            for _, v in ipairs(ConstrainedEnts) do
+                if IsValid(v) then
+                    v:SetCollisionGroup(COLLISION_GROUP_WEAPON)
+                end
             end
         end
 
